@@ -299,7 +299,7 @@ async function loadBuiltinNeteaseApi(options = {}) {
       ? options.builtinApi
       : options.builtinLoader
         ? await options.builtinLoader()
-        : await import(NETEASE_BUILTIN_PACKAGE);
+        : await import('@neteasecloudmusicapienhanced/api');
   } catch (error) {
     throw new MusicApiError(
       `The built-in ${NETEASE_BUILTIN_PACKAGE} package is unavailable.`,
@@ -958,13 +958,13 @@ function makeTracksResult(tracks, provider, notice) {
   return result;
 }
 
-export function createMusicServer(options = {}) {
+export function createMusicHandler(options = {}) {
   const providers = options.providers || createProviders(options);
   const demoTracks = Array.isArray(options.demoTracks) ? options.demoTracks : DEMO_TRACKS;
   const distRoot = path.resolve(options.distRoot || process.env.SENSEME_DIST_DIR || path.join(MODULE_DIR, '..', 'dist'));
   const defaultProvider = options.defaultProvider || defaultProviderName(providers);
 
-  return http.createServer(async (request, response) => {
+  return async (request, response) => {
     const method = String(request.method || 'GET').toUpperCase();
     if (method !== 'GET' && method !== 'HEAD') {
       response.setHeader('allow', 'GET, HEAD');
@@ -1106,7 +1106,11 @@ export function createMusicServer(options = {}) {
       const result = errorPayload(error, fallbackProvider);
       sendJson(response, result.status, result.body, method);
     }
-  });
+  };
+}
+
+export function createMusicServer(options = {}) {
+  return http.createServer(createMusicHandler(options));
 }
 
 export function startServer(options = {}) {
