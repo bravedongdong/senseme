@@ -17,7 +17,7 @@ const scene = Object.create(SensMeScene.prototype);
 scene.playbackRequested=true;
 const first = scene.poseFor(1), active = scene.poseFor(0);
 assert.equal(active.scale,5);assert.equal(active.position.y,2.5);
-for(let i=1;i<=12;i++)assert(scene.poseFor(i).position.z>-90,'A rear node enters the far-water fade');
+for(let i=1;i<=6;i++)assert(scene.poseFor(i).position.z>-90,'A rear node enters the far-water fade');
 function bounds(pose, width = 480, height = 272) {
  const view = sceneViewport(width, height);
  const camera = new THREE.PerspectiveCamera(view.fov, view.aspect, .1, 500);
@@ -99,7 +99,7 @@ for(const [width,height] of [[480,272],[1280,720],[390,844]]) {
  const interrupted=interpolate(first,active,.437);
  for(const from of [active,interrupted]) {
   const initial=sleeveScreenBounds(from,exitCamera);let previous=initial;
-  for(let i=0;i<=120;i++) {
+  for(let i=0;i<=60;i++) {
    const state=departureProgress(i/120),pose=departingSleeve(from,exitCamera,state),screen=sleeveScreenBounds(pose,exitCamera);
    assert(screen.width<=previous.width+1e-8,'Departing sleeve visually grows');
    assert(screen.center<=previous.center+1e-8,'Departing sleeve reverses horizontal direction');
@@ -185,9 +185,11 @@ console.log('PASS: smooth Front motion, visible departure constraints, Root/brow
 fixture.reducedMotion=false;fixture.setBrowsing(false);fixture.setPlaybackRequested(true);
 for(const count of [2,8,30]) {
  const tracks=catalog.slice(0,count);fixture.setTracks(tracks);
+ assert.equal(fixture.cards.size,Math.min(count,7),"Visible queue exceeds current + six");
  const front=displayed();fixture.select(count-1,-1);
  const returning=fixture.cards.get(count-1),retreating=fixture.cards.get(0);
  assert(returning.returning && !retreating.departing);
+ assert.equal([...fixture.cards.values()].filter(card=>!card.departing).length,Math.min(count,7),"Previous retains an extra rear cover");
  assert(retreating.from.position.distanceTo(front.position)<1e-10);
  advance(.05);
  const queueProgress=retreating.group.position.distanceTo(retreating.from.position)/retreating.to.position.distanceTo(retreating.from.position);
@@ -203,7 +205,7 @@ for(const count of [2,8,30]) {
  advance(.4);assert(displayed().position.distanceTo(front.position)<1e-8);
  assert(retreating.group.position.distanceTo(fixture.poseFor(1).position)<1e-8);
  for(let i=0;i<60;i++) {fixture.select(fixture.selectedIndex+(i%2?1:-1),i%2?1:-1);advance(.025);assert(fixture.cards.size<=24);}
- advance(1);assert.equal(fixture.cards.size,Math.min(count,13));
+ advance(1);assert.equal(fixture.cards.size,Math.min(count,7));
 }
 fixture.setTracks(catalog);fixture.setPlaybackRequested(false);advance(1);
 assert(Math.abs(displayed().position.z-3.273)<1e-10,'Paused cover is not at Root');

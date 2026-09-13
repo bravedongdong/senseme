@@ -251,7 +251,7 @@ export class SensMeScene {
  }
  private arrange(animate: boolean, direction: number) {
   const desired = new Set<number>();
-  const count=Math.min(this.tracks.length,13);
+  const count=Math.min(this.tracks.length,1+ORIGINAL_RENDER.rearCoverCount);
   for(let slot=0;slot<count;slot++) {
    const index=(this.selectedIndex+slot)%this.tracks.length; desired.add(index);
    const target=this.poseFor(slot);
@@ -269,11 +269,9 @@ export class SensMeScene {
   }
   for(const [index,card] of this.cards) {
    if(desired.has(index) || card.departing) continue;
-   card.from={position:card.group.position.clone(),scale:card.group.scale.x,rotation:card.group.rotation.y,edge:card.group.userData.edge??0,opacity:card.opacity};
-   card.to=clonePose(card.from); card.to.opacity=0;
-   card.to.position.x += direction>0 ? -6 : 5;
-   card.to.scale*=.90;
-   card.to.position.y=card.from.position.y+(card.to.scale-card.from.scale)*.5;
+   // A sleeve leaving the rear window must not become a seventh rear cover.
+   // Foreground left-exit sleeves retain their independent departure animation.
+   this.destroyCard(card);this.cards.delete(index);
   }
   // Rapid uninterrupted selection must not accumulate a sleeve for every visited song.
   const leaving=[...this.cards.entries()].filter(([key])=>!desired.has(key)).sort((a,b)=>a[1].opacity-b[1].opacity);
