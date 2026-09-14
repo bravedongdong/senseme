@@ -13,7 +13,7 @@ import { incomingProgress, departureProgress, returningProgress, browsingProgres
 export interface SceneTrack { id: string; title: string; artist: string; cover: string }
 export interface SceneOptions { onSelect?: (index: number, direction?: number, offset?: number) => void; onError?: (message: string) => void }
 type Pose = { position: THREE.Vector3; scale: number; rotation: number; edge?:number; opacity: number };
-type Card = { index: number; group: THREE.Group; face: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>; from: Pose; to: Pose; opacity: number; returning?: boolean; returnProgress?: number; returnBase?: Pose; departing: boolean; departureStart: number; placeholder: THREE.Texture };
+type Card = { motionRate?: number; index: number; group: THREE.Group; face: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>; from: Pose; to: Pose; opacity: number; returning?: boolean; returnProgress?: number; returnBase?: Pose; departing: boolean; departureStart: number; placeholder: THREE.Texture };
 type Palette = { sky: number; horizon: number; water: number; rainbow: number; bokeh?: number };
 const PALETTES: Record<string, Palette> = {
  'shuffle-all': { sky:0x24200e, horizon:0xc72237, water:0x9d233c, rainbow:0, bokeh:1 },
@@ -68,6 +68,7 @@ export class SensMeScene {
  private transitionStart = -10;
  private cursor = 0;
  private queuedCursor: number | null = null;
+ private selectionRate = 1;
  private elapsed = 0;
  private previousTimestamp = 0;
  private playing = false;
@@ -134,7 +135,7 @@ export class SensMeScene {
  }
 
  setTracks(tracks: SceneTrack[], selectedIndex = 0) {
-  this.queuedCursor=null;
+  this.queuedCursor=null;this.selectionRate=1;
   this.presentationTransition=null;
   this.catalogGeneration++; this.pendingTextures.clear();
   for (const card of this.cards.values()) this.destroyCard(card);
@@ -146,8 +147,8 @@ export class SensMeScene {
   this.cursor=this.selectedIndex;
   this.arrange(false, 1);
  }
- select(index: number, direction?: number, offset?: number) {
-  this.queuedCursor=null;
+ select(index: number, direction?: number, offset?: number, motionRate=1) {
+  this.queuedCursor=null;this.selectionRate=motionRate;
   const count=this.tracks.length;
   if(!count)return;
   const next=((index%count)+count)%count;
@@ -158,7 +159,7 @@ export class SensMeScene {
   this.presentationTransition=null;
   const outgoing=this.cards.get(this.cursor);
   if(outgoing && step>0) {
-   outgoing.returning=false;outgoing.departing=true;outgoing.departureStart=this.elapsed;
+   outgoing.motionRate=motionRate;outgoing.returning=false;outgoing.departing=true;outgoing.departureStart=this.elapsed;
    outgoing.from={position:outgoing.group.position.clone(),scale:outgoing.group.scale.x,rotation:outgoing.group.rotation.y,edge:outgoing.group.userData.edge??0,opacity:outgoing.opacity};
    outgoing.to=clonePose(outgoing.from);outgoing.to.opacity=0;
   }
@@ -268,6 +269,7 @@ export class SensMeScene {
     this.applyPose(card,start); card.opacity=start.opacity;
    }
    card.from={position:card.group.position.clone(),scale:card.group.scale.x,rotation:card.group.rotation.y,edge:card.group.userData.edge??0,opacity:card.opacity};
+   card.motionRate=this.selectionRate;
    card.returning=false;card.departing=false;
    card.to=target;
    if(!animate) this.applyPose(card,target);
@@ -355,7 +357,7 @@ export class SensMeScene {
  }
  private updateCards() {
   for(const [index,card] of this.cards) {
-   const duration=this.reducedMotion ? .18 : card.departing ? DEPARTURE_SECONDS : INCOMING_SECONDS;
+   const duration=(this.reducedMotion ? .18 : card.departing ? DEPARTURE_SECONDS : INCOMING_SECONDS)/(card.motionRate??1);
    const start=(card.departing || card.returning) ? card.departureStart : this.transitionStart;
    const t=THREE.MathUtils.clamp((this.elapsed-start)/duration,0,1);
    if(t===1 && card.to.opacity===0) {this.destroyCard(card);this.cards.delete(index);continue;}
@@ -394,13 +396,19 @@ export class SensMeScene {
  private advanceQueuedSelection() {
   const target=this.queuedCursor;
   if(target==null || !this.tracks.length)return;
-  if(target===this.cursor) {this.queuedCursor=null;return;}
-  // Scene time stops in background tabs; do not outrun unfinished animations.
-  if(this.elapsed-this.transitionStart<(this.reducedMotion?.18:INCOMING_SECONDS))return;
-  const direction=Math.sign(target-this.cursor),expected=this.cursor+direction;
-  this.queuedCursor=null;
-  this.options.onSelect?.((this.selectedIndex+direction+this.tracks.length)%this.tracks.length,direction,direction);
-  if(this.cursor===expected && expected!==target)this.queuedCursor=target;
+  // Await visual completion, then commit the audio selection only once.
+  const current=this.cards.get(this.cursor);
+  const duration=(this.reducedMotion?.18:INCOMING_SECONDS)/(current?.motionRate??1);
+  if(this.elapsed-this.transitionStart<duration)return;
+  if(target===this.cursor) {
+   this.queuedCursor=null;
+   this.options.onSelect?.(this.selectedIndex,undefined,0);
+   return;
+  }
+  const direction=Math.sign(target-this.cursor);
+  const rate=this.reducedMotion?1:INCOMING_SECONDS/PRESENTATION.rearClickStepSeconds;
+  this.select((this.selectedIndex+direction+this.tracks.length)%this.tracks.length,direction,direction,rate);
+  this.queuedCursor=target;
  }
  private tick = (timestamp:number) => {
   if(this.disposed) return;

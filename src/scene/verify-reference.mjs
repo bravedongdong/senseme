@@ -224,23 +224,26 @@ for(const count of [1,2,6,7,8,30]) {
   for(let slot=0;slot<7;slot++)assert.equal(fixture.cards.get(fixture.cursor+slot).index,(fixture.selectedIndex+slot)%count);
  }
 }
-// Clicking the sixth rear occurrence must run six ordinary next transitions.
+// Fast visual traversal must not load or select intermediate audio tracks.
 for(const count of [1,2,8]) {
  fixture.reducedMotion=false;fixture.setTracks(catalog.slice(0,count));
- const visited=[];
+ const commits=[];
  fixture.options={onSelect:(index,direction,offset)=>{
-  const next=fixture.cards.get(fixture.cursor+1),position=next.group.position.clone();
-  fixture.select(index,direction,offset);fixture.updateCards();
-  assert.equal(fixture.cards.get(fixture.cursor),next,'Rear click skips a queue occurrence');
-  assert(next.group.position.distanceTo(position)<1e-10,'Rear click teleports a cover');
-  visited.push(fixture.cursor);
+  commits.push(index);fixture.select(index,direction,offset);
  }};
- fixture.selectOccurrence(6);assert.deepEqual(visited,[1]);
- advance(.35);fixture.advanceQueuedSelection();assert.deepEqual(visited,[1]);
- for(let i=0;i<5;i++){advance(.71);fixture.advanceQueuedSelection();}
- assert.deepEqual(visited,[1,2,3,4,5,6]);assert.equal(fixture.queuedCursor,null);
+ const firstNext=fixture.cards.get(1),firstPosition=firstNext.group.position.clone();
+ fixture.selectOccurrence(6);fixture.updateCards();
+ assert.equal(fixture.cursor,1);assert.equal(fixture.cards.get(1),firstNext);
+ assert(firstNext.group.position.distanceTo(firstPosition)<1e-10);
+ assert.deepEqual(commits,[],'Intermediate cover loads audio');
+ for(let step=1;step<=6;step++) {
+  advance(.121);fixture.advanceQueuedSelection();
+  assert.equal(fixture.cursor,Math.min(step+1,6),'Visual traversal skips an occurrence');
+  assert.equal(commits.length,step===6?1:0,'Audio commits before destination settles');
+ }
+ assert.deepEqual(commits,[6%count]);assert.equal(fixture.queuedCursor,null);
  advance(.8);fixture.selectOccurrence(4);fixture.select(fixture.selectedIndex-1,-1);
- advance(1);fixture.advanceQueuedSelection();assert.equal(fixture.queuedCursor,null,'Manual previous fails to cancel queued click');
+ advance(1);fixture.advanceQueuedSelection();assert.equal(commits.length,1,'Cancelled traversal commits stale target');
 }
 fixture.options={};
 fixture.setTracks(catalog);fixture.setPlaybackRequested(false);advance(1);
