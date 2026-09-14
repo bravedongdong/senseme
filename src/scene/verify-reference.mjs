@@ -224,7 +224,7 @@ for(const count of [1,2,6,7,8,30]) {
   for(let slot=0;slot<7;slot++)assert.equal(fixture.cards.get(fixture.cursor+slot).index,(fixture.selectedIndex+slot)%count);
  }
 }
-// Fast visual traversal must not load or select intermediate audio tracks.
+// Cover clicks use button timing without selecting intermediate audio tracks.
 for(const count of [1,2,8]) {
  fixture.reducedMotion=false;fixture.setTracks(catalog.slice(0,count));
  const commits=[];
@@ -237,7 +237,10 @@ for(const count of [1,2,8]) {
  assert(firstNext.group.position.distanceTo(firstPosition)<1e-10);
  assert.deepEqual(commits,[],'Intermediate cover loads audio');
  for(let step=1;step<=6;step++) {
-  advance(.121);fixture.advanceQueuedSelection();
+  assert.equal(fixture.cards.get(fixture.cursor).motionRate,1,'Cover clicks accelerate button animation');
+  advance(INCOMING_SECONDS/2);fixture.advanceQueuedSelection();
+  assert.equal(fixture.cursor,step,'Cover click advances before normal animation completes');
+  advance(INCOMING_SECONDS/2+.001);fixture.advanceQueuedSelection();
   assert.equal(fixture.cursor,Math.min(step+1,6),'Visual traversal skips an occurrence');
   assert.equal(commits.length,step===6?1:0,'Audio commits before destination settles');
  }

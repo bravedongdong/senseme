@@ -406,7 +406,8 @@ export class SensMeScene {
    return;
   }
   const direction=Math.sign(target-this.cursor);
-  const rate=this.reducedMotion?1:INCOMING_SECONDS/PRESENTATION.rearClickStepSeconds;
+  // Cover clicks share exactly the same timing as the control buttons.
+  const rate=1;
   this.select((this.selectedIndex+direction+this.tracks.length)%this.tracks.length,direction,direction,rate);
   this.queuedCursor=target;
  }
