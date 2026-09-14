@@ -224,27 +224,24 @@ for(const count of [1,2,6,7,8,30]) {
   for(let slot=0;slot<7;slot++)assert.equal(fixture.cards.get(fixture.cursor+slot).index,(fixture.selectedIndex+slot)%count);
  }
 }
-// Cover clicks use button timing without selecting intermediate audio tracks.
-for(const count of [1,2,8]) {
+// Every click distance completes in one button duration; audio commits once.
+for(const count of [1,2,8])for(const distance of [1,3,6]) {
  fixture.reducedMotion=false;fixture.setTracks(catalog.slice(0,count));
  const commits=[];
- fixture.options={onSelect:(index,direction,offset)=>{
-  commits.push(index);fixture.select(index,direction,offset);
- }};
- const firstNext=fixture.cards.get(1),firstPosition=firstNext.group.position.clone();
- fixture.selectOccurrence(6);fixture.updateCards();
- assert.equal(fixture.cursor,1);assert.equal(fixture.cards.get(1),firstNext);
- assert(firstNext.group.position.distanceTo(firstPosition)<1e-10);
- assert.deepEqual(commits,[],'Intermediate cover loads audio');
- for(let step=1;step<=6;step++) {
-  assert.equal(fixture.cards.get(fixture.cursor).motionRate,1,'Cover clicks accelerate button animation');
-  advance(INCOMING_SECONDS/2);fixture.advanceQueuedSelection();
-  assert.equal(fixture.cursor,step,'Cover click advances before normal animation completes');
-  advance(INCOMING_SECONDS/2+.001);fixture.advanceQueuedSelection();
-  assert.equal(fixture.cursor,Math.min(step+1,6),'Visual traversal skips an occurrence');
-  assert.equal(commits.length,step===6?1:0,'Audio commits before destination settles');
+ fixture.options={onSelect:(index,direction,offset)=>{commits.push(index);fixture.select(index,direction,offset);}};
+ const next=fixture.cards.get(1),position=next.group.position.clone();
+ fixture.selectOccurrence(distance);fixture.updateCards();
+ assert.equal(fixture.cards.get(1),next);assert(next.group.position.distanceTo(position)<1e-10);
+ assert.equal(next.motionRate,distance);
+ // Irregular render intervals must not accumulate extra delay at each sleeve.
+ const start=fixture.elapsed;
+ for(const time of [.053,.177,.319,.481,.699]) {
+  fixture.elapsed=start+time;fixture.updateCards();fixture.advanceQueuedSelection();
+  assert.equal(commits.length,0,'Intermediate audio selection');
  }
- assert.deepEqual(commits,[6%count]);assert.equal(fixture.queuedCursor,null);
+ fixture.elapsed=start+INCOMING_SECONDS;fixture.updateCards();fixture.advanceQueuedSelection();
+ assert.equal(fixture.cursor,distance);assert.deepEqual(commits,[distance%count]);
+ assert.equal(fixture.queuedCursor,null);
  advance(.8);fixture.selectOccurrence(4);fixture.select(fixture.selectedIndex-1,-1);
  advance(1);fixture.advanceQueuedSelection();assert.equal(commits.length,1,'Cancelled traversal commits stale target');
 }

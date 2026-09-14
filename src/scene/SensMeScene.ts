@@ -68,6 +68,8 @@ export class SensMeScene {
  private transitionStart = -10;
  private cursor = 0;
  private queuedCursor: number | null = null;
+ private queuedRate = 1;
+ private queuedStarted = false;
  private selectionRate = 1;
  private elapsed = 0;
  private previousTimestamp = 0;
@@ -391,25 +393,31 @@ export class SensMeScene {
  private selectOccurrence(offset:number) {
   if(!offset) {this.queuedCursor=null;this.options.onSelect?.(this.selectedIndex,undefined,0);return;}
   this.queuedCursor=this.cursor+offset;
+  this.queuedRate=Math.max(1,Math.abs(offset));this.queuedStarted=false;
   this.advanceQueuedSelection();
  }
  private advanceQueuedSelection() {
   const target=this.queuedCursor;
   if(target==null || !this.tracks.length)return;
-  // Await visual completion, then commit the audio selection only once.
-  const current=this.cards.get(this.cursor);
-  const duration=(this.reducedMotion?.18:INCOMING_SECONDS)/(current?.motionRate??1);
-  if(this.elapsed-this.transitionStart<duration)return;
-  if(target===this.cursor) {
-   this.queuedCursor=null;
-   this.options.onSelect?.(this.selectedIndex,undefined,0);
-   return;
+  // Keep one total duration, including fractional frame time across boundaries.
+  for(let step=0;step<=ORIGINAL_RENDER.rearCoverCount;step++) {
+   const current=this.cards.get(this.cursor);
+   const duration=(this.reducedMotion?.18:INCOMING_SECONDS)/(current?.motionRate??1);
+   const boundary=this.transitionStart+duration;
+   if(this.elapsed+1e-9<boundary)return;
+   if(target===this.cursor) {
+    this.queuedCursor=null;
+    this.options.onSelect?.(this.selectedIndex,undefined,0);
+    return;
+   }
+   const now=this.elapsed;
+   if(this.queuedStarted)this.elapsed=boundary;
+   this.updateCards();
+   const direction=Math.sign(target-this.cursor);
+   this.select((this.selectedIndex+direction+this.tracks.length)%this.tracks.length,direction,direction,this.queuedRate);
+   this.queuedCursor=target;this.queuedStarted=true;
+   this.elapsed=now;this.updateCards();
   }
-  const direction=Math.sign(target-this.cursor);
-  // Cover clicks share exactly the same timing as the control buttons.
-  const rate=1;
-  this.select((this.selectedIndex+direction+this.tracks.length)%this.tracks.length,direction,direction,rate);
-  this.queuedCursor=target;
  }
  private tick = (timestamp:number) => {
   if(this.disposed) return;
