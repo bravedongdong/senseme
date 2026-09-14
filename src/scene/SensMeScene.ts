@@ -11,7 +11,7 @@ import { sceneViewport, originalPixelRatio, ACTIVE_SLEEVE, BROWSING_SLEEVE, orig
 import { incomingProgress, departureProgress, returningProgress, browsingProgress, INCOMING_SECONDS, DEPARTURE_SECONDS } from './motion';
 
 export interface SceneTrack { id: string; title: string; artist: string; cover: string }
-export interface SceneOptions { onSelect?: (index: number) => void; onError?: (message: string) => void }
+export interface SceneOptions { onSelect?: (index: number, direction?: number, offset?: number) => void; onError?: (message: string) => void }
 type Pose = { position: THREE.Vector3; scale: number; rotation: number; edge?:number; opacity: number };
 type Card = { index: number; group: THREE.Group; face: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>; from: Pose; to: Pose; opacity: number; returning?: boolean; returnProgress?: number; returnBase?: Pose; departing: boolean; departureStart: number; placeholder: THREE.Texture };
 type Palette = { sky: number; horizon: number; water: number; rainbow: number; bokeh?: number };
@@ -66,7 +66,7 @@ export class SensMeScene {
  private height = 272;
  private animation = 0;
  private transitionStart = -10;
- private departureSequence = 0;
+ private cursor = 0;
  private elapsed = 0;
  private previousTimestamp = 0;
  private playing = false;
@@ -141,41 +141,42 @@ export class SensMeScene {
   this.textureCache.clear();
   this.tracks = tracks;
   this.selectedIndex = tracks.length ? ((selectedIndex%tracks.length)+tracks.length)%tracks.length : 0;
+  this.cursor=this.selectedIndex;
   this.arrange(false, 1);
  }
- select(index: number, direction?: number) {
-  if (!this.tracks.length) return;
-  const next = ((index%this.tracks.length)+this.tracks.length)%this.tracks.length;
-  if (next === this.selectedIndex) return;
+ select(index: number, direction?: number, offset?: number) {
+  const count=this.tracks.length;
+  if(!count)return;
+  const next=((index%count)+count)%count;
+  if(next===this.selectedIndex && direction===undefined && !offset)return;
+  const sign=direction ?? (next===(this.selectedIndex+count-1)%count?-1:1);
+  const step=offset ?? (sign<0 ? -((this.selectedIndex-next+count)%count || count) : ((next-this.selectedIndex+count)%count || count));
+  if(!step)return;
   this.presentationTransition=null;
-  const inferredDirection = next === (this.selectedIndex+this.tracks.length-1)%this.tracks.length ? -1 : 1;
-  const backwards=(direction ?? inferredDirection)<0;
-  const outgoing=this.cards.get(this.selectedIndex);
-  if(outgoing && !backwards) {
-   this.cards.delete(this.selectedIndex);
-   this.cards.set(--this.departureSequence,outgoing);
-   outgoing.returning=false;outgoing.departing=true; outgoing.departureStart=this.elapsed;
+  const outgoing=this.cards.get(this.cursor);
+  if(outgoing && step>0) {
+   outgoing.returning=false;outgoing.departing=true;outgoing.departureStart=this.elapsed;
    outgoing.from={position:outgoing.group.position.clone(),scale:outgoing.group.scale.x,rotation:outgoing.group.rotation.y,edge:outgoing.group.userData.edge??0,opacity:outgoing.opacity};
-   outgoing.to=clonePose(outgoing.from);
-   outgoing.to.opacity=0;
+   outgoing.to=clonePose(outgoing.from);outgoing.to.opacity=0;
   }
-  this.selectedIndex = next;
-  this.arrange(true, direction ?? inferredDirection);
-  if(backwards) {
-   // A previous sleeve returns along the left departure path, never from the tail.
-   const incoming=this.cards.get(next)!;
-   let returnProgress=1;
-   for(const [key,card] of this.cards)if(key<0 && card.index===next){
-    if(card.from.position.distanceTo(incoming.to.position)<1e-8 && Math.abs(card.from.scale-incoming.to.scale)<1e-8)
-     returnProgress=THREE.MathUtils.clamp((this.elapsed-card.departureStart)/(this.reducedMotion?.18:DEPARTURE_SECONDS),0,1);
-    this.destroyCard(card);this.cards.delete(key);
-   }
+  this.cursor+=step;this.selectedIndex=next;
+  // Reuse only this occurrence, never a matching song from the queue tail.
+  const returning=this.cards.get(this.cursor);
+  let returnProgress=1;
+  if(step<0 && returning?.departing) {
+   const target=this.poseFor(0);
+   if(returning.from.position.distanceTo(target.position)<1e-8 && Math.abs(returning.from.scale-target.scale)<1e-8)
+    returnProgress=THREE.MathUtils.clamp((this.elapsed-returning.departureStart)/(this.reducedMotion?.18:DEPARTURE_SECONDS),0,1);
+  }
+  this.arrange(true,step);
+  if(step<0) {
+   const incoming=this.cards.get(this.cursor)!;
    incoming.returning=true;incoming.returnBase=clonePose(incoming.to);incoming.returnProgress=returnProgress;incoming.departureStart=this.elapsed;
    const exit=departureProgress(returnProgress);
    this.applyPose(incoming,{...departingSleeve(incoming.to,this.camera,exit),opacity:exit.opacity});
   }
-
  }
+
  setMood(mood: string) {
   if(this.mood!==mood.toLowerCase())this.ambient.select(mood.toLowerCase(),this.elapsed);
   this.mood = mood.toLowerCase();
@@ -193,7 +194,7 @@ export class SensMeScene {
   this.browsing=value;this.updatePresentation();
  }
  private updatePresentation() {
-  const card=this.cards.get(this.selectedIndex);
+  const card=this.cards.get(this.cursor);
   if(!card || card.departing)return;
   // Change the destination beneath a returning sleeve without replacing its
   // independent reverse-departure clock or fade with the presentation easing.
@@ -251,19 +252,20 @@ export class SensMeScene {
  }
  private arrange(animate: boolean, direction: number) {
   const desired = new Set<number>();
-  const count=Math.min(this.tracks.length,1+ORIGINAL_RENDER.rearCoverCount);
+  const count=this.tracks.length?1+ORIGINAL_RENDER.rearCoverCount:0;
   for(let slot=0;slot<count;slot++) {
-   const index=(this.selectedIndex+slot)%this.tracks.length; desired.add(index);
+   const occurrence=this.cursor+slot;
+   const index=((occurrence%this.tracks.length)+this.tracks.length)%this.tracks.length; desired.add(occurrence);
    const target=this.poseFor(slot);
-   let card=this.cards.get(index);
+   let card=this.cards.get(occurrence);
    if(!card) {
-    card=this.createCard(index); this.cards.set(index,card);
+    card=this.createCard(index); this.cards.set(occurrence,card);
     const start=clonePose(target);
     if(animate) {start.position.x += slot===0 && direction<0 ? -6 : 4; start.opacity=0;}
     this.applyPose(card,start); card.opacity=start.opacity;
    }
    card.from={position:card.group.position.clone(),scale:card.group.scale.x,rotation:card.group.rotation.y,edge:card.group.userData.edge??0,opacity:card.opacity};
-   card.returning=false;
+   card.returning=false;card.departing=false;
    card.to=target;
    if(!animate) this.applyPose(card,target);
   }
@@ -291,7 +293,7 @@ export class SensMeScene {
   const pose=this.poseFor(0);
   const card:Card={index,group,face,from:clonePose(pose),to:clonePose(pose),opacity:1,departing:false,departureStart:0,placeholder};
   if(track.cover) this.loadCover(track.cover).then(texture=>{
-   if(this.disposed || this.cards.get(index)!==card) {this.pruneTextures();return;}
+   if(this.disposed || ![...this.cards.values()].includes(card)) {this.pruneTextures();return;}
    face.material.map=texture; face.material.needsUpdate=true; this.pruneTextures();
   }).catch(()=>{ /* Retain the labelled fallback when artwork is unavailable. */ });
   return card;
@@ -440,7 +442,7 @@ export class SensMeScene {
   if(!this.pointerStart)return;
   const dx=event.clientX-this.pointerStart.x,dy=event.clientY-this.pointerStart.y;this.pointerStart=null;
   if(Math.hypot(dx,dy)>9)this.suppressClickUntil=performance.now()+300;
-  if(Math.abs(dx)>45 && Math.abs(dx)>Math.abs(dy)*1.4) {if(this.tracks.length)this.options.onSelect?.((this.selectedIndex+(dx<0?1:-1)+this.tracks.length)%this.tracks.length);return;}
+  if(Math.abs(dx)>45 && Math.abs(dx)>Math.abs(dy)*1.4) {if(this.tracks.length)this.options.onSelect?.((this.selectedIndex+(dx<0?1:-1)+this.tracks.length)%this.tracks.length,dx<0?1:-1);return;}
  };
  private onClick=(event:MouseEvent)=>{
   if(performance.now()<this.suppressClickUntil)return;
@@ -451,7 +453,11 @@ export class SensMeScene {
   const hit=hits.find(candidate=>sleeveHitOpacity(candidate)>.5);
   const card=hit && [...this.cards.values()].find(candidate=>candidate.face===hit.object);
   // An opaque departing sleeve occludes the queue but is no longer selectable.
-  if(card && !card.departing)this.options.onSelect?.(card.index);
+  if(card && !card.departing) {
+   const occurrence=[...this.cards.entries()].find(([,value])=>value===card)![0];
+   const offset=occurrence-this.cursor;
+   this.options.onSelect?.(card.index,offset?Math.sign(offset):undefined,offset);
+  }
  };
  private onContextLost=(event:Event)=>{event.preventDefault();cancelAnimationFrame(this.animation);this.options.onError?.('3D 画面暂时失去 GPU 连接，浏览器恢复后将自动重绘。');};
  private onContextRestored=()=>{if(!this.disposed){this.previousTimestamp=0;this.animation=requestAnimationFrame(this.tick);}};

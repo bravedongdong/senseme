@@ -143,7 +143,7 @@ Object.assign(fixture,{cards:new Map(),textureCache:new Map(),pendingTextures:ne
  presentationTransition:null,tracks:[],transitionStart:-10,disposed:false});
 fixture.makePlaceholder=()=>{const texture=new THREE.Texture();fixture.fallbackTextures.add(texture);return texture;};
 const catalog=Array.from({length:30},(_,i)=>({id:String(i),title:`Track ${i}`,artist:'Fixture',cover:''}));
-const displayed=()=>{const card=fixture.cards.get(fixture.selectedIndex);return {position:card.group.position.clone(),scale:card.group.scale.x,rotation:card.group.rotation.y};};
+const displayed=()=>{const card=fixture.cards.get(fixture.cursor);return {position:card.group.position.clone(),scale:card.group.scale.x,rotation:card.group.rotation.y};};
 const advance=(seconds)=>{fixture.elapsed+=seconds;fixture.updateCards();};
 fixture.setTracks(catalog);const frontPose=displayed();
 fixture.setPlaying(true);fixture.setPlaying(false);assert.deepEqual(displayed(),frontPose,'Audio pause changes presentation without browsing');
@@ -183,13 +183,13 @@ console.log('PASS: smooth Front motion, visible departure constraints, Root/brow
 
 // Previous is the left departure played backwards; the current card retreats.
 fixture.reducedMotion=false;fixture.setBrowsing(false);fixture.setPlaybackRequested(true);
-for(const count of [2,8,30]) {
+for(const count of [1,2,6,7,8,30]) {
  const tracks=catalog.slice(0,count);fixture.setTracks(tracks);
- assert.equal(fixture.cards.size,Math.min(count,7),"Visible queue exceeds current + six");
+ assert.equal(fixture.cards.size,7,"Visible queue exceeds current + six");
  const front=displayed();fixture.select(count-1,-1);
- const returning=fixture.cards.get(count-1),retreating=fixture.cards.get(0);
+ const returning=fixture.cards.get(fixture.cursor),retreating=fixture.cards.get(0);
  assert(returning.returning && !retreating.departing);
- assert.equal([...fixture.cards.values()].filter(card=>!card.departing).length,Math.min(count,7),"Previous retains an extra rear cover");
+ assert.equal([...fixture.cards.values()].filter(card=>!card.departing).length,7,"Previous retains an extra rear cover");
  assert(retreating.from.position.distanceTo(front.position)<1e-10);
  advance(.05);
  const queueProgress=retreating.group.position.distanceTo(retreating.from.position)/retreating.to.position.distanceTo(retreating.from.position);
@@ -205,7 +205,24 @@ for(const count of [2,8,30]) {
  advance(.4);assert(displayed().position.distanceTo(front.position)<1e-8);
  assert(retreating.group.position.distanceTo(fixture.poseFor(1).position)<1e-8);
  for(let i=0;i<60;i++) {fixture.select(fixture.selectedIndex+(i%2?1:-1),i%2?1:-1);advance(.025);assert(fixture.cards.size<=24);}
- advance(1);assert.equal(fixture.cards.size,Math.min(count,7));
+ advance(1);assert.equal(fixture.cards.size,7);
+}
+// Cross the catalog seam repeatedly: the actual next occurrence must advance,
+// including when all seven cards refer to one song.
+for(const count of [1,2,6,7,8,30]) {
+ fixture.setTracks(catalog.slice(0,count),count-1);
+ for(let step=0;step<count+2;step++) {
+  const cursor=fixture.cursor,front=fixture.cards.get(cursor),next=fixture.cards.get(cursor+1);
+  const position=next.group.position.clone();
+  fixture.select((fixture.selectedIndex+1)%count,1);fixture.updateCards();
+  assert.equal(fixture.cards.get(fixture.cursor),next,'Catalog seam replaces incoming occurrence');
+  assert(next.group.position.distanceTo(position)<1e-10,'Catalog seam teleports incoming cover');
+  assert(front.departing,'Single-track next skips the outgoing animation');
+  assert.equal([...fixture.cards.values()].filter(card=>!card.departing).length,7);
+  advance(.8);
+  assert.equal(fixture.cards.size,7);
+  for(let slot=0;slot<7;slot++)assert.equal(fixture.cards.get(fixture.cursor+slot).index,(fixture.selectedIndex+slot)%count);
+ }
 }
 fixture.setTracks(catalog);fixture.setPlaybackRequested(false);advance(1);
 assert(Math.abs(displayed().position.z-3.273)<1e-10,'Paused cover is not at Root');
@@ -218,7 +235,7 @@ console.log('PASS: previous returns from left, current retreats, queue wrap/inte
 for(const reduced of [false,true]) {
  fixture.reducedMotion=reduced;fixture.setPlaybackRequested(true);fixture.setTracks(catalog);
  fixture.select(29,-1);advance(.06);
- const card=fixture.cards.get(29),start=card.departureStart;
+ const card=fixture.cards.get(fixture.cursor),start=card.departureStart;
  for(const requested of [false,true,false]) {
   const before=displayed(),alpha=card.opacity;
   fixture.setPlaybackRequested(requested);fixture.updateCards();

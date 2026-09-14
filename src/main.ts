@@ -96,7 +96,7 @@ async function request<T>(url: string, signal?: AbortSignal): Promise<T> {
   }
   return data as T;
 }
-try { scene = new SensMeScene($('scene'), { onSelect: index => selectTrack(index, true), onError: message => toast(message) }); }
+try { scene = new SensMeScene($('scene'), { onSelect: (index, direction, offset) => selectTrack(index, true, direction, offset), onError: message => toast(message) }); }
 catch { $('scene-error').hidden = false; $('scene-error').textContent = '此浏览器无法启动 WebGL 3D 场景。请开启硬件加速或使用支持 WebGL 2 的浏览器；音乐播放仍可使用。'; }
 
 function prefersReducedMotion() {
@@ -152,12 +152,12 @@ async function setQueue(tracks: Track[], index = 0, autoplay = false) {
   scene?.setTracks(queue, index); showTrackImmediately(queue[index]); renderList();
   await audio.load(queue[index], autoplay).catch(() => {});
 }
-function selectTrack(index: number, autoplay = state.playbackRequested, direction?: number) {
+function selectTrack(index: number, autoplay = state.playbackRequested, direction?: number, offset?: number) {
   if (!queue.length) return;
   const next = (index + queue.length) % queue.length;
   const delta = direction ?? (next >= selectedIndex ? 1 : -1);
   const trackChanged = next !== selectedIndex;
-  selectedIndex = next; scene?.select(next, delta); updateTrackContext(queue[next]);
+  selectedIndex = next; scene?.select(next, direction ?? (trackChanged?delta:undefined), offset); updateTrackContext(queue[next]);
   if (trackChanged) animateTrackCopy(queue[next]); else showTrackImmediately(queue[next]);
   renderList();
   void audio.load(queue[next], autoplay).catch(() => {});
