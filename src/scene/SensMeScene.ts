@@ -67,6 +67,7 @@ export class SensMeScene {
  private animation = 0;
  private transitionStart = -10;
  private cursor = 0;
+ private queuedCursor: number | null = null;
  private elapsed = 0;
  private previousTimestamp = 0;
  private playing = false;
@@ -133,6 +134,7 @@ export class SensMeScene {
  }
 
  setTracks(tracks: SceneTrack[], selectedIndex = 0) {
+  this.queuedCursor=null;
   this.presentationTransition=null;
   this.catalogGeneration++; this.pendingTextures.clear();
   for (const card of this.cards.values()) this.destroyCard(card);
@@ -145,6 +147,7 @@ export class SensMeScene {
   this.arrange(false, 1);
  }
  select(index: number, direction?: number, offset?: number) {
+  this.queuedCursor=null;
   const count=this.tracks.length;
   if(!count)return;
   const next=((index%count)+count)%count;
@@ -382,6 +385,23 @@ export class SensMeScene {
 
   }
  }
+ /** A clicked rear occurrence is reached through adjacent transitions only. */
+ private selectOccurrence(offset:number) {
+  if(!offset) {this.queuedCursor=null;this.options.onSelect?.(this.selectedIndex,undefined,0);return;}
+  this.queuedCursor=this.cursor+offset;
+  this.advanceQueuedSelection();
+ }
+ private advanceQueuedSelection() {
+  const target=this.queuedCursor;
+  if(target==null || !this.tracks.length)return;
+  if(target===this.cursor) {this.queuedCursor=null;return;}
+  // Scene time stops in background tabs; do not outrun unfinished animations.
+  if(this.elapsed-this.transitionStart<(this.reducedMotion?.18:INCOMING_SECONDS))return;
+  const direction=Math.sign(target-this.cursor),expected=this.cursor+direction;
+  this.queuedCursor=null;
+  this.options.onSelect?.((this.selectedIndex+direction+this.tracks.length)%this.tracks.length,direction,direction);
+  if(this.cursor===expected && expected!==target)this.queuedCursor=target;
+ }
  private tick = (timestamp:number) => {
   if(this.disposed) return;
   this.animation=requestAnimationFrame(this.tick);
@@ -391,6 +411,7 @@ export class SensMeScene {
   this.energy=THREE.MathUtils.damp(this.energy,this.playing?this.targetEnergy:0,3,dt);
   this.ambientUniform.value.fromArray(this.ambient.sample(this.elapsed,this.reducedMotion));
   this.updateCards();
+  this.advanceQueuedSelection();
   const skyU=this.sky.material.uniforms;
   skyU.uTime.value=this.reducedMotion ? 0 : this.elapsed;
   skyU.uZenith.value.lerp(new THREE.Color(this.palette.sky),1-Math.exp(-dt*1.3));
@@ -456,7 +477,7 @@ export class SensMeScene {
   if(card && !card.departing) {
    const occurrence=[...this.cards.entries()].find(([,value])=>value===card)![0];
    const offset=occurrence-this.cursor;
-   this.options.onSelect?.(card.index,offset?Math.sign(offset):undefined,offset);
+   this.selectOccurrence(offset);
   }
  };
  private onContextLost=(event:Event)=>{event.preventDefault();cancelAnimationFrame(this.animation);this.options.onError?.('3D 画面暂时失去 GPU 连接，浏览器恢复后将自动重绘。');};

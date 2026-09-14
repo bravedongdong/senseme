@@ -224,6 +224,25 @@ for(const count of [1,2,6,7,8,30]) {
   for(let slot=0;slot<7;slot++)assert.equal(fixture.cards.get(fixture.cursor+slot).index,(fixture.selectedIndex+slot)%count);
  }
 }
+// Clicking the sixth rear occurrence must run six ordinary next transitions.
+for(const count of [1,2,8]) {
+ fixture.reducedMotion=false;fixture.setTracks(catalog.slice(0,count));
+ const visited=[];
+ fixture.options={onSelect:(index,direction,offset)=>{
+  const next=fixture.cards.get(fixture.cursor+1),position=next.group.position.clone();
+  fixture.select(index,direction,offset);fixture.updateCards();
+  assert.equal(fixture.cards.get(fixture.cursor),next,'Rear click skips a queue occurrence');
+  assert(next.group.position.distanceTo(position)<1e-10,'Rear click teleports a cover');
+  visited.push(fixture.cursor);
+ }};
+ fixture.selectOccurrence(6);assert.deepEqual(visited,[1]);
+ advance(.35);fixture.advanceQueuedSelection();assert.deepEqual(visited,[1]);
+ for(let i=0;i<5;i++){advance(.71);fixture.advanceQueuedSelection();}
+ assert.deepEqual(visited,[1,2,3,4,5,6]);assert.equal(fixture.queuedCursor,null);
+ advance(.8);fixture.selectOccurrence(4);fixture.select(fixture.selectedIndex-1,-1);
+ advance(1);fixture.advanceQueuedSelection();assert.equal(fixture.queuedCursor,null,'Manual previous fails to cancel queued click');
+}
+fixture.options={};
 fixture.setTracks(catalog);fixture.setPlaybackRequested(false);advance(1);
 assert(Math.abs(displayed().position.z-3.273)<1e-10,'Paused cover is not at Root');
 fixture.setPlaying(false);fixture.setPlaybackRequested(true);advance(1);
